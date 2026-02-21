@@ -3,13 +3,15 @@ package com.jimandreas.scanner
 import com.sun.jna.Pointer
 import com.sun.jna.Structure
 import com.sun.jna.platform.win32.Guid.GUID
+import com.sun.jna.platform.win32.WTypes
 import com.sun.jna.platform.win32.WinNT.HRESULT
+import com.sun.jna.ptr.IntByReference
 import com.sun.jna.ptr.PointerByReference
 
 /**
  * JNA vtable binding for IWiaDevMgr2.
  *
- * IWiaDevMgr2 vtable (inherits IUnknown at offsets 0,1,2):
+ * IWiaDevMgr2 vtable — verified against wia_lh.h (Windows SDK 10.0.26100.0):
  *   0: QueryInterface
  *   1: AddRef
  *   2: Release
@@ -17,11 +19,15 @@ import com.sun.jna.ptr.PointerByReference
  *   4: CreateDevice
  *   5: SelectDeviceDlg
  *   6: SelectDeviceDlgID
- *   7: GetImageDlg
- *   8: RegisterEventCallbackWindow
- *   9: RegisterEventCallbackInterface
- *  10: RegisterEventCallbackCLSID
- *  11: AddDeviceToList
+ *   7: RegisterEventCallbackInterface
+ *   8: RegisterEventCallbackProgram
+ *   9: RegisterEventCallbackCLSID
+ *  10: GetImageDlg
+ *
+ * NOTE: IWiaDevMgr2::GetImageDlg is DIFFERENT from IWiaDevMgr (WIA 1.0):
+ *   - Index is 10 (not 7)
+ *   - Takes a device-ID BSTR and HWND directly (no IWiaItem2* root)
+ *   - Returns an array of output file paths and the IWiaItem2* used
  */
 class WiaDevMgr2(pointer: Pointer) : WiaComBase(pointer) {
 
@@ -42,5 +48,49 @@ class WiaDevMgr2(pointer: Pointer) : WiaComBase(pointer) {
     fun createDevice(reserved: Int, bstrDeviceID: String, ppWiaItem2Root: PointerByReference): HRESULT {
         val bstr = com.sun.jna.platform.win32.WTypes.BSTR(bstrDeviceID)
         return vtableCall(4, pointer, reserved, bstr, ppWiaItem2Root) as HRESULT
+    }
+
+    /**
+     * GetImageDlg (vtable index 10) — shows the WIA 2.0 scan dialog.
+     *
+     * Signature from wia_lh.h:
+     *   HRESULT GetImageDlg(
+     *       LONG     lFlags,
+     *       BSTR     bstrDeviceID,
+     *       HWND     hwndParent,
+     *       BSTR     bstrFolderName,   // optional; null = WIA default folder
+     *       BSTR     bstrFilename,     // optional; null = WIA default filename
+     *       LONG    *plNumFiles,       // out: number of acquired files
+     *       BSTR   **ppbstrFilePaths,  // out: array of full file paths
+     *       IWiaItem2 **ppItem)        // out: the WIA item used (caller Release()s)
+     *
+     * Returns S_OK on success, S_FALSE if the user cancelled.
+     * Caller must SysFreeString each path BSTR, CoTaskMemFree the array, and Release ppItem.
+     *
+     * @param lFlags         0 = show full dialog
+     * @param bstrDeviceID   pre-selects the scanner (null = show device list)
+     * @param hwndParent     parent HWND (Any? accepts WinDef.HWND or null)
+     * @param bstrFolderName optional folder shown in the Save dialog
+     * @param bstrFilename   optional suggested filename
+     * @param plNumFiles     receives the count of acquired image files
+     * @param ppbstrFilePaths receives a CoTaskMem array of BSTR file paths
+     * @param ppItem         receives the IWiaItem2* used during acquisition
+     */
+    fun getImageDlg(
+        lFlags: Int,
+        bstrDeviceID: WTypes.BSTR?,
+        hwndParent: Any?,
+        bstrFolderName: WTypes.BSTR?,
+        bstrFilename: WTypes.BSTR?,
+        plNumFiles: IntByReference,
+        ppbstrFilePaths: PointerByReference,
+        ppItem: PointerByReference
+    ): HRESULT {
+        return vtableCall(
+            10, pointer,
+            lFlags, bstrDeviceID, hwndParent,
+            bstrFolderName, bstrFilename,
+            plNumFiles, ppbstrFilePaths, ppItem
+        ) as HRESULT
     }
 }

@@ -60,7 +60,8 @@ object ImageProcessor {
 
     private fun toBinary(src: BufferedImage): BufferedImage {
         val gray = toGrayscale(src)
-        val dst = BufferedImage(src.width, src.height, BufferedImage.TYPE_BYTE_BINARY)
+        // Use TYPE_BYTE_GRAY so JPEG can encode it; TYPE_BYTE_BINARY is not JPEG-compatible.
+        val dst = BufferedImage(src.width, src.height, BufferedImage.TYPE_BYTE_GRAY)
         for (y in 0 until gray.height) {
             for (x in 0 until gray.width) {
                 val lum = Color(gray.getRGB(x, y)).red

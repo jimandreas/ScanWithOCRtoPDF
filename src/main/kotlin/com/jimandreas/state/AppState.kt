@@ -122,7 +122,11 @@ class AppState(
         withContext(dispatchers.main) {
             isScanning = false
             scanProgress = null
-            showScanMoreDialog = true
+            // Only prompt for more pages / PDF if something was actually scanned.
+            // newImages is empty when the user cancels the WIA dialog.
+            if (newImages.isNotEmpty()) {
+                showScanMoreDialog = true
+            }
         }
     }
 

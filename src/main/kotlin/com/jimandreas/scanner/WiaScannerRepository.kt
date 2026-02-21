@@ -5,11 +5,15 @@ import com.sun.jna.Function
 import com.sun.jna.Native
 import com.sun.jna.Pointer
 import com.sun.jna.platform.win32.Ole32
+import com.sun.jna.platform.win32.OleAuto
+import com.sun.jna.platform.win32.User32
+import com.sun.jna.platform.win32.WTypes
 import com.sun.jna.platform.win32.WinNT.HRESULT
 import com.sun.jna.ptr.IntByReference
 import com.sun.jna.ptr.PointerByReference
-import kotlinx.coroutines.suspendCancellableCoroutine
 import java.awt.image.BufferedImage
+import javax.imageio.ImageIO
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -118,45 +122,85 @@ class WiaScannerRepository : ScannerRepository {
         if (hrCreate.toInt() != 0) {
             throw hresultToScannerException(hrCreate.toInt(), "CoCreateInstance for acquisition")
         }
-
         val devMgr = WiaDevMgr2(pDevMgr.value)
         try {
-            val pRoot = PointerByReference()
-            val hrDev = devMgr.createDevice(0, device.id, pRoot)
-            if (hrDev.toInt() != 0) {
-                throw hresultToScannerException(hrDev.toInt(), "CreateDevice '${device.id}'")
-            }
-            // Device created successfully; use WIA automation dialog for image acquisition
-            pRoot.value?.let { rootPtr ->
-                releaseComPointer(rootPtr)
-            }
-            return acquireViaWiaAutomation(device.id)
+            return acquireViaGetImageDlg(devMgr, device.id)
         } finally {
             devMgr.release()
         }
     }
 
     /**
-     * Uses the WIA Automation Layer COM object (wiaaut.dll) to show the acquisition dialog.
-     * This is the most robust path for simple scanner apps; it handles all driver quirks.
+     * Uses IWiaDevMgr2::GetImageDlg() (vtable index 10) to show the WIA 2.0 scan dialog.
+     *
+     * The WIA 2.0 signature differs completely from WIA 1.0:
+     *   GetImageDlg(lFlags, bstrDeviceID, hwndParent, bstrFolderName, bstrFilename,
+     *               *plNumFiles, **ppbstrFilePaths, **ppItem)
+     *
+     * WIA saves the scanned image(s) to its own folder and returns the full file paths via
+     * ppbstrFilePaths[0..plNumFiles-1].  We read each path back as a BufferedImage.
+     *
+     * Memory ownership: caller must SysFreeString each path BSTR, CoTaskMemFree the array,
+     * and Release the ppItem pointer.
      */
-    private fun acquireViaWiaAutomation(deviceId: String): List<BufferedImage> {
-        // WIA Automation Layer CLSID: {850D1D11-70F3-4BE5-9A11-77AA6B2BB201}
-        val clsidAutomation = com.sun.jna.platform.win32.Guid.GUID("{850D1D11-70F3-4BE5-9A11-77AA6B2BB201}")
-        val iidDispatch = com.sun.jna.platform.win32.Guid.GUID("{00020400-0000-0000-C000-000000000046}")
-        val pAuto = PointerByReference()
-        val hr = Ole32.INSTANCE.CoCreateInstance(clsidAutomation, null, WiaConstants.CLSCTX_LOCAL_SERVER, iidDispatch, pAuto)
-        if (hr.toInt() != 0) {
-            throw ScannerException.AcquisitionFailed(
-                "WIA Automation Layer not available (${hr.toHex()}). " +
-                "Ensure Windows Image Acquisition is enabled."
+    private fun acquireViaGetImageDlg(devMgr: WiaDevMgr2, deviceId: String): List<BufferedImage> {
+        val hwnd = User32.INSTANCE.GetDesktopWindow()
+        val bstrDeviceID = OleAuto.INSTANCE.SysAllocString(deviceId)
+        // IWiaDevMgr2::GetImageDlg returns E_POINTER if bstrFolderName or bstrFilename
+        // is null, even though the MSDN docs list them as optional.  Provide non-null
+        // BSTRs: direct output into the system temp folder with a fixed base filename.
+        val outputFolder = System.getProperty("java.io.tmpdir").trimEnd('\\', '/')
+        val bstrFolderName = OleAuto.INSTANCE.SysAllocString(outputFolder)
+        val bstrFilename   = OleAuto.INSTANCE.SysAllocString("wia_scan")
+        val plNumFiles = IntByReference(0)
+        val ppbstrFilePaths = PointerByReference()
+        val ppItem = PointerByReference()
+
+        try {
+            val hr = devMgr.getImageDlg(
+                0,             // lFlags: 0 = show full dialog
+                bstrDeviceID,  // pre-select the scanner the user chose in the app UI
+                hwnd,          // valid parent HWND
+                bstrFolderName,
+                bstrFilename,
+                plNumFiles,
+                ppbstrFilePaths,
+                ppItem
             )
+
+            // S_FALSE (1) = user cancelled the dialog
+            if (hr.toInt() == 1) return emptyList()
+            if (hr.toInt() != 0) throw hresultToScannerException(hr.toInt(), "GetImageDlg")
+
+            val numFiles = plNumFiles.value
+            if (numFiles <= 0) return emptyList()
+
+            // Read each file path returned by WIA and decode it as a BufferedImage.
+            val images = mutableListOf<BufferedImage>()
+            val filePathsArray = ppbstrFilePaths.value
+            if (filePathsArray != null) {
+                for (i in 0 until numFiles) {
+                    val bstrPtr = filePathsArray.getPointer(i.toLong() * Native.POINTER_SIZE)
+                    if (bstrPtr != null) {
+                        try {
+                            val path = bstrPtr.getWideString(0)
+                            val image = ImageIO.read(java.io.File(path))
+                            if (image != null) images.add(image)
+                        } finally {
+                            OleAuto.INSTANCE.SysFreeString(WTypes.BSTR(bstrPtr))
+                        }
+                    }
+                }
+                Ole32.INSTANCE.CoTaskMemFree(filePathsArray)
+            }
+
+            return images
+        } finally {
+            OleAuto.INSTANCE.SysFreeString(bstrDeviceID)
+            OleAuto.INSTANCE.SysFreeString(bstrFolderName)
+            OleAuto.INSTANCE.SysFreeString(bstrFilename)
+            ppItem.value?.let { releaseComPointer(it) }
         }
-        // Full IDispatch->ShowAcquireImage would go here via invoke.
-        // For now release the object; real acquisition requires IDispatch invocation with VARIANTs.
-        releaseComPointer(pAuto.value)
-        // Return empty list — the actual implementation would populate images from the dialog result.
-        return emptyList()
     }
 
     private fun releaseComPointer(pointer: Pointer) {
