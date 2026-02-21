@@ -4,7 +4,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.jimandreas.ocr.OcrEngine
+import com.jimandreas.ocr.OcrWord
 import com.jimandreas.pdf.PdfBuilder
+import com.jimandreas.scanner.ScannedPage
 import com.jimandreas.scanner.ScannerDevice
 import com.jimandreas.scanner.ScannerException
 import com.jimandreas.scanner.ScannerRepository
@@ -16,7 +18,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.awt.image.BufferedImage
 import java.io.File
 import java.nio.file.Files
 
@@ -42,7 +43,7 @@ class AppState(
     var lastOutputFile by mutableStateOf<File?>(null)
 
     // Batch pages accumulated across ADF + flatbed loops
-    private val accumulatedPages = mutableListOf<BufferedImage>()
+    private val accumulatedPages = mutableListOf<ScannedPage>()
     var showScanMoreDialog by mutableStateOf(false)
 
     private var scanJob: Job? = null
@@ -130,7 +131,7 @@ class AppState(
         }
     }
 
-    private suspend fun buildPdf(pages: List<BufferedImage>) {
+    private suspend fun buildPdf(pages: List<ScannedPage>) {
         withContext(dispatchers.main) {
             isScanning = true
             scanProgress = ScanProgress(phase = "Processing images...", pagesAcquired = pages.size)
@@ -139,9 +140,9 @@ class AppState(
         try {
             // Compress images
             val jpegPages = withContext(dispatchers.default) {
-                pages.mapIndexed { i, img ->
+                pages.mapIndexed { i, page ->
                     ensureActive()
-                    val bytes = ImageProcessor.toJpegBytes(img, scanSettings.jpegQuality, scanSettings.colorMode)
+                    val bytes = ImageProcessor.toJpegBytes(page.image, scanSettings.jpegQuality, scanSettings.colorMode)
                     withContext(dispatchers.main) {
                         scanProgress = ScanProgress("Compressing page ${i + 1}/${pages.size}", i + 1)
                     }
@@ -149,15 +150,15 @@ class AppState(
                 }
             }
 
-            // OCR
-            val ocrTexts: List<String?> = if (ocrSettings.enabled) {
+            // OCR — use the actual DPI from each page's file metadata
+            val ocrWords: List<List<OcrWord>?> = if (ocrSettings.enabled) {
                 withContext(dispatchers.default) {
-                    pages.mapIndexed { i, img ->
+                    pages.mapIndexed { i, page ->
                         ensureActive()
                         withContext(dispatchers.main) {
                             scanProgress = ScanProgress("OCR page ${i + 1}/${pages.size}", i + 1)
                         }
-                        ocrEngine.recognizePage(img, ocrSettings.language)
+                        ocrEngine.recognizePage(page.image, ocrSettings.language, page.dpi)
                     }
                 }
             } else {
@@ -175,7 +176,8 @@ class AppState(
                 PdfBuilder.build(
                     outputFile = outFile,
                     jpegPages = jpegPages,
-                    ocrTexts = ocrTexts,
+                    ocrWords = ocrWords,
+                    pageDpis = pages.map { it.dpi },
                     metadata = pdfMetadata,
                     scanSettings = scanSettings
                 )

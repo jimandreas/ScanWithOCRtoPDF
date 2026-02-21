@@ -19,7 +19,7 @@ class TesseractOcrEngine : OcrEngine {
 
     private val tessDataPath: String by lazy { resolveTessDataPath() }
 
-    override suspend fun recognizePage(image: BufferedImage, language: String): String? {
+    override suspend fun recognizePage(image: BufferedImage, language: String, dpi: Int): List<OcrWord>? {
         coroutineContext.ensureActive()
         return withContext(Dispatchers.Default) {
             coroutineContext.ensureActive()
@@ -29,10 +29,19 @@ class TesseractOcrEngine : OcrEngine {
                     setLanguage(language)
                     setOcrEngineMode(1) // LSTM_ONLY
                     setPageSegMode(3)   // PSM_AUTO
+                    setVariable("user_defined_dpi", dpi.toString())
                 }
-                tess.doOCR(image)?.takeIf { it.isNotBlank() }
+                // RIL_WORD = 3: get per-word text and pixel bounding boxes
+                tess.getWords(image, 3).mapNotNull { word ->
+                    val bbox = word.boundingBox ?: return@mapNotNull null
+                    val text = word.text
+                        ?.trim()
+                        ?.filter { c -> c.code in 0x20..0xFFFF }
+                        ?: return@mapNotNull null
+                    if (text.isBlank() || bbox.width <= 0 || bbox.height <= 0) return@mapNotNull null
+                    OcrWord(text, bbox.x, bbox.y, bbox.width, bbox.height)
+                }.takeIf { it.isNotEmpty() }
             } catch (e: Exception) {
-                // If tessdata not found, return null (OCR disabled gracefully)
                 null
             }
         }
@@ -43,16 +52,16 @@ class TesseractOcrEngine : OcrEngine {
         val resourcesDir = System.getProperty("compose.application.resources.dir")
         if (resourcesDir != null) {
             val tessDir = File(resourcesDir, "tessdata")
-            if (tessDir.exists()) return tessDir.parent
+            if (tessDir.exists()) return tessDir.absolutePath
         }
 
         // 2. Dev mode: look for appResources/windows-x64/tessdata relative to working dir
-        val devPath = File("appResources/windows-x64")
-        if (devPath.exists()) return devPath.absolutePath
+        val devTessdata = File("appResources/windows-x64/tessdata")
+        if (devTessdata.exists()) return devTessdata.absolutePath
 
         // 3. Relative tessdata folder in working dir
         val localTess = File("tessdata")
-        if (localTess.exists()) return File(".").absolutePath
+        if (localTess.exists()) return localTess.absolutePath
 
         // 4. Fallback: let Tess4J use its default extraction path
         return ""

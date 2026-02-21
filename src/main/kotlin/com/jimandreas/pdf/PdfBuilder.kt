@@ -1,12 +1,15 @@
 package com.jimandreas.pdf
 
+import com.jimandreas.ocr.OcrWord
 import com.jimandreas.state.PdfMetadata
 import com.jimandreas.state.ScanSettings
 import org.apache.pdfbox.pdmodel.PDDocument
 import org.apache.pdfbox.pdmodel.PDPage
 import org.apache.pdfbox.pdmodel.PDPageContentStream
 import org.apache.pdfbox.pdmodel.common.PDRectangle
-import org.apache.pdfbox.pdmodel.font.PDType0Font
+import org.apache.pdfbox.pdmodel.font.PDFont
+import org.apache.pdfbox.pdmodel.font.PDTrueTypeFont
+import org.apache.pdfbox.pdmodel.font.encoding.WinAnsiEncoding
 import org.apache.pdfbox.pdmodel.graphics.color.PDOutputIntent
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject
 import org.apache.pdfbox.pdmodel.graphics.state.RenderingMode
@@ -26,13 +29,14 @@ object PdfBuilder {
     fun build(
         outputFile: File,
         jpegPages: List<ByteArray>,
-        ocrTexts: List<String?>,
+        ocrWords: List<List<OcrWord>?>,
+        pageDpis: List<Int>,
         metadata: PdfMetadata,
         scanSettings: ScanSettings
     ) {
         PDDocument().use { document ->
             addOutputIntent(document)
-            addPages(document, jpegPages, ocrTexts, scanSettings)
+            addPages(document, jpegPages, ocrWords, pageDpis, scanSettings)
             PdfMetadataWriter.write(document, metadata)
             document.save(outputFile)
         }
@@ -55,10 +59,11 @@ object PdfBuilder {
     private fun addPages(
         document: PDDocument,
         jpegPages: List<ByteArray>,
-        ocrTexts: List<String?>,
+        ocrWords: List<List<OcrWord>?>,
+        pageDpis: List<Int>,
         scanSettings: ScanSettings
     ) {
-        val font: PDType0Font? = loadNotoFont(document)
+        val font: PDFont? = loadOcrFont(document)
 
         jpegPages.forEachIndexed { i, jpegBytes ->
             val pageWidthPt = (scanSettings.paperSize.widthInches * 72.0).toFloat()
@@ -74,46 +79,80 @@ object PdfBuilder {
                 // Layer 1: scanned image filling the entire page
                 cs.drawImage(pdImage, 0f, 0f, pageWidthPt, pageHeightPt)
 
-                // Layer 2: invisible OCR text overlay
-                val text = ocrTexts.getOrNull(i)
-                if (text != null && font != null && text.isNotBlank()) {
-                    drawInvisibleText(cs, font, text, pageHeightPt)
+                // Layer 2: invisible OCR text overlay at exact word positions
+                val words = ocrWords.getOrNull(i)
+                val dpi = pageDpis.getOrElse(i) { 300 }
+                if (words != null && font != null) {
+                    drawWordOverlay(cs, font, words, pageWidthPt, pageHeightPt, dpi)
                 }
+
             }
         }
     }
 
-    private fun loadNotoFont(document: PDDocument): PDType0Font? = try {
+    /**
+     * Loads NotoSans as a PDTrueTypeFont with WinAnsiEncoding (simple 8-bit font).
+     *
+     * PDType0Font with Identity-H writes glyph IDs as character codes. NotoSans digit
+     * glyphs sit at GIDs 4540+; without a correct ToUnicode CMap, PDF viewers decode
+     * those codes as Hangul Jamo (U+11BC…). PDTrueTypeFont with WinAnsiEncoding writes
+     * the WinAnsi code point (= ASCII for 0x20–0x7E) directly into the stream, so '0'
+     * (0x30) stays 0x30 for any viewer.
+     */
+    private fun loadOcrFont(document: PDDocument): PDFont? = try {
         val stream: InputStream? =
             PdfBuilder::class.java.getResourceAsStream("/fonts/NotoSans-Regular.ttf")
                 ?: PdfBuilder::class.java.getResourceAsStream("/NotoSans-Regular.ttf")
-        stream?.let { PDType0Font.load(document, it, true) }
+        stream?.let { PDTrueTypeFont.load(document, it, WinAnsiEncoding.INSTANCE) }
     } catch (_: Exception) { null }
 
-    private fun drawInvisibleText(
+    /**
+     * Places each OCR word as invisible (RenderingMode.NEITHER) text at its exact
+     * pixel bounding-box position, scaled and horizontally stretched to match the
+     * word's width in the scanned image.
+     *
+     * Coordinate mapping:
+     *   image: (0,0) = top-left,  y increases downward, units = pixels
+     *   PDF:   (0,0) = bottom-left, y increases upward,  units = points
+     *   scale = 72 / dpi  (pixels → points)
+     *   pdfY  = pageHeight − (imageY + wordHeight) * scale
+     */
+    private fun drawWordOverlay(
         cs: PDPageContentStream,
-        font: PDType0Font,
-        ocrText: String,
-        pageHeight: Float
+        font: PDFont,
+        words: List<OcrWord>,
+        pageWidth: Float,
+        pageHeight: Float,
+        dpi: Int
     ) {
-        val fontSize = 10f
-        val leading = 12f
+        val scale = 72.0f / dpi
 
-        cs.beginText()
-        cs.setFont(font, fontSize)
-        // Rendering mode NEITHER = invisible (no fill, no stroke) — text is still searchable
-        cs.setRenderingMode(RenderingMode.NEITHER)
-        cs.setTextMatrix(Matrix.getTranslateInstance(0f, pageHeight - leading))
-        cs.setLeading(leading)
+        for (word in words) {
+            val pdfX      = word.x * scale
+            val pdfY      = pageHeight - (word.y + word.height) * scale
+            val pdfWidth  = word.width * scale
+            val fontSize  = word.height * scale
 
-        ocrText.lines().take(500).forEach { line ->
-            // Keep only printable BMP characters
-            val safe = line.filter { c -> c.code in 0x20..0xFFFF }.take(500)
-            if (safe.isNotBlank()) {
-                try { cs.showText(safe) } catch (_: Exception) {}
-            }
-            cs.newLine()
+            if (fontSize < 1f || pdfWidth < 1f || pdfX < 0f || pdfY < 0f) continue
+            if (pdfX > pageWidth || pdfY > pageHeight) continue
+
+            try {
+                // WinAnsiEncoding covers 0x20–0xFF; drop anything outside that range
+                val safeText = word.text.filter { c -> c.code in 0x20..0xFF }
+                if (safeText.isBlank()) continue
+
+                // Stretch the word horizontally to exactly cover its bounding box width
+                val textWidth = font.getStringWidth(safeText) / 1000f * fontSize
+                val hScale = if (textWidth > 0f) (pdfWidth / textWidth * 100f).coerceIn(10f, 500f) else 100f
+
+                cs.beginText()
+                cs.setFont(font, fontSize)
+                cs.setRenderingMode(RenderingMode.NEITHER)
+                cs.setHorizontalScaling(hScale)
+                cs.setTextMatrix(Matrix.getTranslateInstance(pdfX, pdfY))
+                cs.showText(safeText)
+                cs.endText()
+            } catch (_: Exception) {}
         }
-        cs.endText()
     }
 }

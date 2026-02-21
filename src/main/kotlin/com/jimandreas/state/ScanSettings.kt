@@ -5,7 +5,7 @@ data class ScanSettings(
     val colorMode: ColorMode = ColorMode.GRAYSCALE,
     val dpi: Int = 300,
     val paperSize: PaperSize = PaperSize.LETTER,
-    val jpegQuality: Float = 0.75f
+    val jpegQuality: Float = 0.90f
 )
 
 enum class Sides(val displayName: String) {

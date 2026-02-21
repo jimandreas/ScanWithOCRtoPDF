@@ -13,6 +13,7 @@ import com.sun.jna.ptr.IntByReference
 import com.sun.jna.ptr.PointerByReference
 import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
+import kotlin.math.roundToInt
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
@@ -47,7 +48,7 @@ class WiaScannerRepository : ScannerRepository {
     override suspend fun enumerateDevices(): List<ScannerDevice> =
         runOnSta { enumerateDevicesSync() }
 
-    override suspend fun acquireImages(device: ScannerDevice, settings: ScanSettings): List<BufferedImage> =
+    override suspend fun acquireImages(device: ScannerDevice, settings: ScanSettings): List<ScannedPage> =
         runOnSta { acquireImagesSync(device, settings) }
 
     private suspend fun <T> runOnSta(block: () -> T): T =
@@ -110,7 +111,7 @@ class WiaScannerRepository : ScannerRepository {
         }
     }
 
-    private fun acquireImagesSync(device: ScannerDevice, settings: ScanSettings): List<BufferedImage> {
+    private fun acquireImagesSync(device: ScannerDevice, settings: ScanSettings): List<ScannedPage> {
         val pDevMgr = PointerByReference()
         val hrCreate = Ole32.INSTANCE.CoCreateInstance(
             WiaConstants.CLSID_WiaDevMgr2,
@@ -124,7 +125,7 @@ class WiaScannerRepository : ScannerRepository {
         }
         val devMgr = WiaDevMgr2(pDevMgr.value)
         try {
-            return acquireViaGetImageDlg(devMgr, device.id)
+            return acquireViaGetImageDlg(devMgr, device.id, settings.dpi)
         } finally {
             devMgr.release()
         }
@@ -143,7 +144,7 @@ class WiaScannerRepository : ScannerRepository {
      * Memory ownership: caller must SysFreeString each path BSTR, CoTaskMemFree the array,
      * and Release the ppItem pointer.
      */
-    private fun acquireViaGetImageDlg(devMgr: WiaDevMgr2, deviceId: String): List<BufferedImage> {
+    private fun acquireViaGetImageDlg(devMgr: WiaDevMgr2, deviceId: String, fallbackDpi: Int): List<ScannedPage> {
         val hwnd = User32.INSTANCE.GetDesktopWindow()
         val bstrDeviceID = OleAuto.INSTANCE.SysAllocString(deviceId)
         // IWiaDevMgr2::GetImageDlg returns E_POINTER if bstrFolderName or bstrFilename
@@ -175,8 +176,8 @@ class WiaScannerRepository : ScannerRepository {
             val numFiles = plNumFiles.value
             if (numFiles <= 0) return emptyList()
 
-            // Read each file path returned by WIA and decode it as a BufferedImage.
-            val images = mutableListOf<BufferedImage>()
+            // Read each file path returned by WIA and decode it as a ScannedPage.
+            val pages = mutableListOf<ScannedPage>()
             val filePathsArray = ppbstrFilePaths.value
             if (filePathsArray != null) {
                 for (i in 0 until numFiles) {
@@ -184,8 +185,12 @@ class WiaScannerRepository : ScannerRepository {
                     if (bstrPtr != null) {
                         try {
                             val path = bstrPtr.getWideString(0)
-                            val image = ImageIO.read(java.io.File(path))
-                            if (image != null) images.add(image)
+                            val file = java.io.File(path)
+                            val image = ImageIO.read(file)
+                            if (image != null) {
+                                val dpi = readDpiFromFile(file, fallbackDpi)
+                                pages.add(ScannedPage(image, dpi))
+                            }
                         } finally {
                             OleAuto.INSTANCE.SysFreeString(WTypes.BSTR(bstrPtr))
                         }
@@ -194,12 +199,47 @@ class WiaScannerRepository : ScannerRepository {
                 Ole32.INSTANCE.CoTaskMemFree(filePathsArray)
             }
 
-            return images
+            return pages
         } finally {
             OleAuto.INSTANCE.SysFreeString(bstrDeviceID)
             OleAuto.INSTANCE.SysFreeString(bstrFolderName)
             OleAuto.INSTANCE.SysFreeString(bstrFilename)
             ppItem.value?.let { releaseComPointer(it) }
+        }
+    }
+
+    /**
+     * Reads the horizontal DPI from the image file's embedded metadata using the
+     * standard javax_imageio_1.0 metadata tree (works for BMP, JPEG, PNG, TIFF).
+     * HorizontalPixelSize is in mm-per-pixel; DPI = 25.4 / mm.
+     * Returns [fallback] if the metadata is missing or the value is implausible.
+     */
+    private fun readDpiFromFile(file: java.io.File, fallback: Int): Int {
+        return try {
+            ImageIO.createImageInputStream(file).use { iis ->
+                val readers = ImageIO.getImageReaders(iis)
+                if (!readers.hasNext()) return fallback
+                val reader = readers.next()
+                try {
+                    reader.input = iis
+                    val meta = reader.getImageMetadata(0)
+                    val root = meta.getAsTree("javax_imageio_1.0") as? org.w3c.dom.Element
+                        ?: return fallback
+                    val nodes = root.getElementsByTagName("HorizontalPixelSize")
+                    if (nodes.length > 0) {
+                        val mm = (nodes.item(0) as? org.w3c.dom.Element)
+                            ?.getAttribute("value")?.toDoubleOrNull()
+                        if (mm != null && mm > 0.0) {
+                            return (25.4 / mm).roundToInt().coerceIn(72, 1200)
+                        }
+                    }
+                    fallback
+                } finally {
+                    reader.dispose()
+                }
+            }
+        } catch (_: Exception) {
+            fallback
         }
     }
 
