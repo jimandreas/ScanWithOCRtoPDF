@@ -4,6 +4,11 @@ import com.sun.jna.platform.win32.Guid.GUID
 
 object WiaConstants {
 
+    // CoCreateInstance context flags
+    const val CLSCTX_INPROC_SERVER = 0x1
+    const val CLSCTX_LOCAL_SERVER  = 0x4  // WIA Device Manager 2 is an out-of-process local server
+    const val CLSCTX_ALL           = 0x17
+
     // CLSID for WiaDevMgr2 (WIA Device Manager version 2)
     val CLSID_WiaDevMgr2: GUID = GUID("{B6C292BC-7C88-41EE-8B54-8EC92617E599}")
 

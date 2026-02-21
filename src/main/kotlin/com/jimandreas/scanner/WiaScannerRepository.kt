@@ -35,7 +35,7 @@ class WiaScannerRepository : ScannerRepository {
             val hr = Ole32.INSTANCE.CoInitializeEx(null, 0x2)
             // S_OK (0) or S_FALSE (1) means success
             if (hr.toInt() != 0 && hr.toInt() != 1) {
-                throw RuntimeException("CoInitializeEx failed: 0x${hr.toInt().toString(16)}")
+                throw RuntimeException("CoInitializeEx failed: ${hr.toHex()}")
             }
         }.get()
     }
@@ -63,14 +63,14 @@ class WiaScannerRepository : ScannerRepository {
         val hr = Ole32.INSTANCE.CoCreateInstance(
             WiaConstants.CLSID_WiaDevMgr2,
             null,
-            0x1, // CLSCTX_INPROC_SERVER
+            WiaConstants.CLSCTX_LOCAL_SERVER,
             WiaConstants.IID_IWiaDevMgr2,
             pDevMgr
         )
         if (hr.toInt() != 0) {
             if (hr.toInt() == WiaConstants.WIA_S_NO_DEVICE_AVAILABLE) return emptyList()
             throw ScannerException.AcquisitionFailed(
-                "CoCreateInstance IWiaDevMgr2 failed: 0x${hr.toInt().toString(16)}"
+                "CoCreateInstance IWiaDevMgr2 failed: ${hr.toHex()}"
             )
         }
 
@@ -111,7 +111,7 @@ class WiaScannerRepository : ScannerRepository {
         val hrCreate = Ole32.INSTANCE.CoCreateInstance(
             WiaConstants.CLSID_WiaDevMgr2,
             null,
-            0x1,
+            WiaConstants.CLSCTX_LOCAL_SERVER,
             WiaConstants.IID_IWiaDevMgr2,
             pDevMgr
         )
@@ -145,10 +145,10 @@ class WiaScannerRepository : ScannerRepository {
         val clsidAutomation = com.sun.jna.platform.win32.Guid.GUID("{850D1D11-70F3-4BE5-9A11-77AA6B2BB201}")
         val iidDispatch = com.sun.jna.platform.win32.Guid.GUID("{00020400-0000-0000-C000-000000000046}")
         val pAuto = PointerByReference()
-        val hr = Ole32.INSTANCE.CoCreateInstance(clsidAutomation, null, 0x1, iidDispatch, pAuto)
+        val hr = Ole32.INSTANCE.CoCreateInstance(clsidAutomation, null, WiaConstants.CLSCTX_LOCAL_SERVER, iidDispatch, pAuto)
         if (hr.toInt() != 0) {
             throw ScannerException.AcquisitionFailed(
-                "WIA Automation Layer not available (HRESULT=0x${hr.toInt().toString(16)}). " +
+                "WIA Automation Layer not available (${hr.toHex()}). " +
                 "Ensure Windows Image Acquisition is enabled."
             )
         }
