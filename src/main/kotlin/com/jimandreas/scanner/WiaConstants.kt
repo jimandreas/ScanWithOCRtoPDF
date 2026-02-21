@@ -12,14 +12,14 @@ object WiaConstants {
     // CLSID for WiaDevMgr2 (WIA Device Manager version 2)
     val CLSID_WiaDevMgr2: GUID = GUID("{B6C292BC-7C88-41EE-8B54-8EC92617E599}")
 
-    // IID for IWiaDevMgr2
-    val IID_IWiaDevMgr2: GUID = GUID("{814B5ACC-8B03-4F51-B75B-2CA6A0B8BD7C}")
+    // IID for IWiaDevMgr2  (from wia_lh.h MIDL_INTERFACE)
+    val IID_IWiaDevMgr2: GUID = GUID("{79C07CF1-CBDD-41EE-8EC3-F00080CADA7A}")
 
-    // IID for IEnumWIA_DEV_INFO
-    val IID_IEnumWIA_DEV_INFO: GUID = GUID("{D8F-6B6-4CB6-8B15-73B0E4D7E2EF}")
+    // IID for IEnumWIA_DEV_INFO  (from wia_lh.h MIDL_INTERFACE)
+    val IID_IEnumWIA_DEV_INFO: GUID = GUID("{5E38B83C-8CF1-11D1-BF92-0060081ED811}")
 
-    // IID for IWiaPropertyStorage
-    val IID_IWiaPropertyStorage: GUID = GUID("{98CBEC27-1BC4-4E79-8B6B-AB6C67BEFF6A}")
+    // IID for IWiaPropertyStorage  (from wia_lh.h MIDL_INTERFACE)
+    val IID_IWiaPropertyStorage: GUID = GUID("{98B5E8A0-29CC-491A-AAC0-E6DB4FDCCEB6}")
 
     // IID for IWiaItem2
     val IID_IWiaItem2: GUID = GUID("{6CBA0075-1287-407D-9B77-CF0E030435CC}")
