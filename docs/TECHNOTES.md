@@ -140,7 +140,7 @@ With these in place, error messages become `CoCreateInstance failed: 0x80040154`
 
 ---
 
-## Summary: Debugging Order
+## Summary: Debugging Order (Enumeration)
 
 The bugs above were discovered in this sequence:
 
@@ -149,3 +149,114 @@ The bugs above were discovered in this sequence:
 3. `PROPSPEC` layout → property reads returned `VT_EMPTY`; found by printing raw `PROPVARIANT` bytes
 4. Wrong BSTR free → heap corruption crash after first successful read; found by noting the exit code `0xC0000374` and correlating with the last successful operation
 5. STA requirement → threading crash under coroutine dispatchers; found by testing from a plain `Thread` vs. dispatcher
+
+---
+
+## 7. WIA Automation Layer (`wiaaut.dll`) Removed from Modern Windows
+
+**Symptom:** `CoCreateInstance` for CLSID `{850D1D11-70F3-4BE5-9A11-77AA6B2BB201}` returned `0x80040154` (`REGDB_E_CLASSNOTREG`) on Windows 11.
+
+**Root cause:** The WIA Automation Layer (`wiaaut.dll`) — the high-level COM scripting wrapper that exposed `CommonDialog.ShowAcquireImage` — was **permanently removed from Windows starting with version 1703** (Creators Update, 2017). It is not present on any currently-supported Windows version. Any code targeting it will always fail with `REGDB_E_CLASSNOTREG`.
+
+**Fix:** Replace all usage of the Automation Layer with the native WIA 2.0 COM API (`IWiaDevMgr2`, `IWiaItem2`, `IWiaTransfer`, `IWiaDevMgr2::GetImageDlg`). These are implemented in `wiaservc.dll`, which ships with every Windows version and is always registered.
+
+**Lesson:** The WIA Automation Layer is widely documented online, but all of those resources are obsolete. When targeting Windows 10/11, use only the interfaces declared in `wia_lh.h`. Ignore any sample code or documentation that refers to `wiaaut.dll`, `WIA.CommonDialog`, or `WIA.DeviceManager`.
+
+---
+
+## 8. `IWiaDevMgr2::GetImageDlg` Has a Completely Different Vtable Index and Signature from WIA 1.0
+
+**Symptom:** `IWiaDevMgr2::GetImageDlg` called at vtable index 7 returned `0x80070057` (`E_INVALIDARG`) regardless of argument values.
+
+**Root cause:** The vtable layout of `IWiaDevMgr2` (WIA 2.0) is **not** the same as `IWiaDevMgr` (WIA 1.0). In WIA 1.0, `GetImageDlg` is at index 7. In WIA 2.0, the slot at index 7 is `RegisterEventCallbackInterface` — a completely different method with a completely different signature. `GetImageDlg` moved to **index 10** to accommodate three new event registration methods inserted between `SelectDeviceDlgID` and `GetImageDlg`.
+
+Correct `IWiaDevMgr2` vtable (verified from `wia_lh.h`, Windows SDK 10.0.26100.0):
+
+| Index | Method |
+|---|---|
+| 0–2 | `QueryInterface`, `AddRef`, `Release` (IUnknown) |
+| 3 | `EnumDeviceInfo` |
+| 4 | `CreateDevice` |
+| 5 | `SelectDeviceDlg` |
+| 6 | `SelectDeviceDlgID` |
+| 7 | `RegisterEventCallbackInterface` ← **not** `GetImageDlg` |
+| 8 | `RegisterEventCallbackProgram` |
+| 9 | `RegisterEventCallbackCLSID` |
+| **10** | **`GetImageDlg`** |
+
+Additionally, the `GetImageDlg` *signature* changed completely between WIA 1.0 and 2.0:
+
+| Parameter | WIA 1.0 (`IWiaDevMgr`) | WIA 2.0 (`IWiaDevMgr2`) |
+|---|---|---|
+| 1st | `HWND hwndParent` | `LONG lFlags` |
+| 2nd | `LONG lDeviceType` | `BSTR bstrDeviceID` |
+| 3rd | `LONG lFlags` | `HWND hwndParent` |
+| 4th | `LONG lIntent` | `BSTR bstrFolderName` |
+| 5th | `IWiaItem2* pItemRoot` | `BSTR bstrFilename` |
+| 6th | `BSTR bstrFilename` (full path) | `LONG* plNumFiles` (out) |
+| 7th | `GUID* pguidFormat` | `BSTR** ppbstrFilePaths` (out) |
+| 8th | _(none)_ | `IWiaItem2** ppItem` (out) |
+
+The WIA 2.0 version saves files to a folder and returns an array of file paths via `ppbstrFilePaths`, rather than writing to a caller-specified path.
+
+**Fix:** Call `GetImageDlg` at vtable index 10 with the WIA 2.0 signature. Always derive vtable indices from the SDK header, never from documentation or blog posts.
+
+**Lesson:** When upgrading from WIA 1.0 to WIA 2.0, do not assume that a method with the same name has the same vtable position or signature. Verify every index and every parameter type against `wia_lh.h`. A wrong vtable index is silent at compile time and produces a confusing HRESULT at runtime (in this case `E_INVALIDARG` from `RegisterEventCallbackInterface` rejecting our `GetImageDlg` arguments).
+
+---
+
+## 9. `IWiaDevMgr2::GetImageDlg` Returns `E_POINTER` for Null `bstrFolderName` / `bstrFilename`
+
+**Symptom:** `GetImageDlg` (called at the correct vtable index 10) returned `0x80004003` (`E_POINTER`) even though all output-pointer arguments were valid.
+
+**Root cause:** The MSDN documentation for `IWiaDevMgr2::GetImageDlg` lists `bstrFolderName` and `bstrFilename` as optional `[in]` parameters and implies they may be `NULL`. In practice, the WIA service implementation checks these pointers before the dialog is shown and returns `E_POINTER` if either is `NULL`. Passing a null BSTR (a null pointer) for either argument triggers this check regardless of what the documentation says.
+
+**Fix:** Always pass non-null BSTRs for `bstrFolderName` and `bstrFilename`. A valid writable directory for `bstrFolderName` (e.g. the system temp directory) and any non-empty string for `bstrFilename` are sufficient. Allocate them with `OleAuto.SysAllocString` and free them with `OleAuto.SysFreeString` after the call:
+
+```kotlin
+val outputFolder = System.getProperty("java.io.tmpdir").trimEnd('\\', '/')
+val bstrFolderName = OleAuto.INSTANCE.SysAllocString(outputFolder)
+val bstrFilename   = OleAuto.INSTANCE.SysAllocString("wia_scan")
+try {
+    devMgr.getImageDlg(0, bstrDeviceID, hwnd, bstrFolderName, bstrFilename, ...)
+} finally {
+    OleAuto.INSTANCE.SysFreeString(bstrFolderName)
+    OleAuto.INSTANCE.SysFreeString(bstrFilename)
+}
+```
+
+A valid `HWND` is also required for `hwndParent`; passing `null` causes `E_INVALIDARG` on many WIA driver implementations. Use `User32.INSTANCE.GetDesktopWindow()` as a safe fallback when no application window HWND is available at the call site.
+
+**Lesson:** COM documentation describing a parameter as "optional" does not guarantee the implementation tolerates a null pointer. When an `[in]` string parameter is labelled optional, always try passing an empty non-null BSTR (`SysAllocString("")`) rather than null. `E_POINTER` on an `[in]` parameter (not an `[out]` parameter) is a strong signal that the implementation enforces non-null even where docs do not.
+
+---
+
+## 10. `TYPE_BYTE_BINARY` Images Cannot Be JPEG-Encoded
+
+**Symptom:** PDF generation threw an exception during image compression when the Black & White scan mode was selected.
+
+**Root cause:** Java's JPEG image writer (`ImageIO` JPEG plugin) does not support `BufferedImage.TYPE_BYTE_BINARY` (1-bit packed pixels). Attempting to encode a binary image directly throws `javax.imageio.IIOException: Unsupported Image Type`. The black-and-white conversion in `ImageProcessor.toBinary` produced a `TYPE_BYTE_BINARY` image, which was then passed directly to the JPEG writer.
+
+**Fix:** Use `BufferedImage.TYPE_BYTE_GRAY` instead of `TYPE_BYTE_BINARY` as the destination format in `toBinary`. The thresholding logic (pixel ≥ 128 → white, else → black) still produces a visually binary result, but stored in a grayscale buffer that the JPEG writer can encode:
+
+```kotlin
+// Before (broken):
+val dst = BufferedImage(src.width, src.height, BufferedImage.TYPE_BYTE_BINARY)
+
+// After (correct):
+val dst = BufferedImage(src.width, src.height, BufferedImage.TYPE_BYTE_GRAY)
+```
+
+**Lesson:** JPEG supports only three image types: 8-bit grayscale, 24-bit RGB, and 32-bit CMYK. Any other `BufferedImage` type must be converted before JPEG encoding. `TYPE_BYTE_BINARY`, `TYPE_BYTE_INDEXED`, and `TYPE_INT_ARGB` (alpha channel) are common sources of this failure. If in doubt, explicitly convert to `TYPE_BYTE_GRAY` or `TYPE_INT_RGB` before handing an image to the JPEG writer.
+
+---
+
+## Summary: Debugging Order (Acquisition)
+
+The acquisition bugs were discovered in this sequence:
+
+1. `wiaaut.dll` not registered → `0x80040154`; identified by looking up CLSID in registry
+2. Wrong vtable index (7 instead of 10) for `GetImageDlg` → `0x80070057` (`E_INVALIDARG`) from `RegisterEventCallbackInterface` rejecting the arguments; found by reading `wia_lh.h` and counting vtable slots
+3. Null `bstrFolderName`/`bstrFilename` → `0x80004003` (`E_POINTER`); identified by process of elimination after the vtable index was corrected
+4. Null `hwndParent` → `E_INVALIDARG`; fixed by using `GetDesktopWindow()`
+5. `TYPE_BYTE_BINARY` JPEG crash → exception during PDF build with B&W mode; identified from the `IIOException` message
