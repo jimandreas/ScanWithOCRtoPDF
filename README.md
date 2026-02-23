@@ -2,19 +2,15 @@
 
 A Windows 11 desktop application that scans documents and saves them as searchable PDF files.
 
-> **Note:** This application is primarily a **scanning backend** — its job is to acquire an image from your scanner, run OCR on it, and produce a searchable PDF. It is not a full document manager. Configure your scanner's resolution, paper size, and duplex settings here, and let the app handle the rest automatically.
+> **Note:** This application is primarily a **scanning backend** — its job is to acquire an image from your scanner, run OCR on it, and produce a searchable PDF. It is not a full document manager. Scanner settings such as resolution, paper size, color mode, and duplex are configured through the Windows WIA scan dialog that appears when you click Scan.
 
 ## What you can do
 
 - **Scan to PDF in one click** — select your scanner, hit Scan, and get a PDF
 - **Make PDFs searchable** — OCR runs automatically so you can search and copy text inside the PDF
 - **Scan multiple pages** — after each scan you can add more pages before building the final PDF
-- **Choose scan quality** — pick Full Color, Grayscale, or Black & White
-- **Choose paper size** — Letter, A4, or Legal
-- **Choose resolution** — 75 to 1200 DPI
-- **Scan one side or both** — one-sided or duplex (if your scanner supports it)
 - **Control file size** — the quality slider trades image sharpness against file size
-- **14 OCR languages** — English, French, German, Spanish, Italian, Portuguese, Dutch, Polish, Russian, Japanese, Chinese (Simplified & Traditional), Korean, and Arabic
+- **12 OCR languages** — English, French, German, Spanish, Italian, Portuguese, Dutch, Polish, Russian, Japanese, Korean, and Arabic
 - **Cancel any time** — a Cancel button stops the scan mid-way
 
 ## Screenshots
