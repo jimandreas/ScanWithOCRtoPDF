@@ -14,6 +14,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Run a single test class
 ./gradlew test --tests "com.jimandreas.SomeTest"
 
+# Run a single test method
+./gradlew test --tests "com.jimandreas.ScanPipelineTest.tableTextIsRecognized"
+
 # Build distributable MSI installer
 ./gradlew packageMsi
 
@@ -24,11 +27,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew build
 ```
 
-**JVM args required for `JavaExec` tasks** (already set in `build.gradle.kts`):
+**JVM args required for `JavaExec` and `tasks.test`** (already set in `build.gradle.kts`):
 ```
 --add-opens java.base/java.lang=ALL-UNNAMED
 --add-opens java.desktop/java.awt.image=ALL-UNNAMED
 ```
+These are needed by Tess4J and PDFBox for reflection on AWT internals.
+
+## Key Dependency Versions
+
+| Concern | Library | Version |
+|---|---|---|
+| UI | Compose for Desktop | 1.8.2 |
+| PDF | Apache PDFBox + xmpbox | 3.0.6 |
+| OCR | Tess4J (Tesseract LSTM) | 5.18.0 |
+| Scanner | JNA + jna-platform | 5.18.1 |
+| Coroutines | kotlinx-coroutines | 1.10.2 |
+| Kotlin | kotlin("jvm") + compose plugin | 2.2.21 |
+| JVM target | JRE/toolchain | 17 |
 
 ## Architecture
 
@@ -77,6 +93,10 @@ startScan()
 ### Critical WIA/COM Constraint
 
 All WIA COM calls **must** execute on the single dedicated `WIA-STA` thread in `WiaScannerRepository` that called `CoInitializeEx(COINIT_APARTMENTTHREADED)`. Calling WIA from `Dispatchers.IO` (a thread pool) creates an MTA context that breaks WIA drivers. The `runOnSta {}` helper marshals coroutine calls onto this thread using `suspendCancellableCoroutine`.
+
+### B&W Image Encoding
+
+`ImageProcessor.toBinary` must produce `TYPE_BYTE_GRAY` (not `TYPE_BYTE_BINARY`). Java's JPEG writer does not support 1-bit packed pixels — passing `TYPE_BYTE_BINARY` throws `IIOException: Unsupported Image Type`. The threshold logic (pixel ≥ 128 → white, else → black) still gives a visually binary result in a grayscale buffer.
 
 ### PDF/A-1b Invisible Text
 
