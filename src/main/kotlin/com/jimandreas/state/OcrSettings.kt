@@ -16,7 +16,6 @@ data class OcrSettings(
             "pol" to "Polish",
             "rus" to "Russian",
             "jpn" to "Japanese",
-            "chi_sim" to "Chinese (Simplified)",
             "kor" to "Korean",
             "ara" to "Arabic"
         )
