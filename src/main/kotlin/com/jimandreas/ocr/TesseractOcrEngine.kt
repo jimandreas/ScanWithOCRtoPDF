@@ -41,6 +41,17 @@ class TesseractOcrEngine : OcrEngine {
                     if (text.isBlank() || bbox.width <= 0 || bbox.height <= 0) return@mapNotNull null
                     OcrWord(text, bbox.x, bbox.y, bbox.width, bbox.height)
                 }.takeIf { it.isNotEmpty() }
+            } catch (e: net.sourceforge.tess4j.TesseractException) {
+                val msg = e.message ?: ""
+                if (msg.contains("Failed loading language") || msg.contains("couldn't load any languages")) {
+                    throw Exception(
+                        "Tessdata file not found for language '$language' " +
+                        "(${language}.traineddata).\n\n" +
+                        "Download it from https://github.com/tesseract-ocr/tessdata " +
+                        "and place it in appResources/windows-x64/tessdata/"
+                    )
+                }
+                null
             } catch (e: Exception) {
                 null
             }
