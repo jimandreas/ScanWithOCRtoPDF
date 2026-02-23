@@ -46,7 +46,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "ScanWithOCRtoPDF"
-            packageVersion = "1.0.0"
+            packageVersion = "1.0.1"
             appResourcesRootDir.set(project.layout.projectDirectory.dir("appResources"))
         }
     }
