@@ -4,53 +4,133 @@
 
 `src/test/kotlin/com/jimandreas/ScanPipelineTest.kt`
 
-An end-to-end integration test for the scan → OCR → PDF pipeline. It bypasses the
-UI and WIA scanner entirely, exercising the three real production components in sequence:
-`ImageProcessor` → `TesseractOcrEngine` → `PdfBuilder`.
+End-to-end integration tests for the scan → OCR → PDF pipeline. Each test creates a
+synthetic bitmap with known text, runs real Tesseract OCR, builds a PDF via `PdfBuilder`,
+then reads it back with PDFBox to verify text content and invisible-overlay position.
+The UI and WIA scanner are bypassed entirely.
 
-### What the test does
+Using the real LSTM Tesseract engine (not a mock) makes these true integration tests —
+they catch regressions anywhere in the full OCR → PDF round-trip.
 
-1. **Creates a synthetic bitmap** — 850×1100 px (Letter at 100 DPI), white background,
-   with the word `"Hello"` drawn in black at a 100pt sans-serif font. The baseline is
-   placed at pixel coordinate (150, 300), in the upper-left area of the page.
+---
 
-2. **Compresses to JPEG** via `ImageProcessor.toJpegBytes()` at 95% quality, exactly
-   as the production pipeline does before embedding images in the PDF.
+### Shared setup
 
-3. **Runs real Tesseract OCR** via `TesseractOcrEngine.recognizePage()`. Using the
-   actual LSTM engine (not a mock) makes this a true integration test — it will catch
-   regressions in the full OCR round-trip. Requires `eng.traineddata` to be present at
-   `appResources/windows-x64/tessdata/eng.traineddata` (already in the repo).
+All tests use a shared `TesseractOcrEngine` instance and a common set of helpers:
 
-4. **Asserts OCR recognized `"Hello"`** in the returned word list.
+| Helper | Purpose |
+|---|---|
+| `blankPage()` | 850×1100 white `BufferedImage` (Letter at 100 DPI) |
+| `drawText(image, text, x, y, fontPt)` | Draws black text at a given baseline position |
+| `drawTable(image)` | Draws a 2×2 ruled table with word text in each cell |
+| `ocr(image)` | Calls `TesseractOcrEngine.recognizePage()` |
+| `assertWord(words, expected)` | Asserts a specific word was recognized by OCR |
+| `withPdf(image, words, block)` | JPEG-compresses → `PdfBuilder.build()` → opens with PDFBox → deletes temp file |
+| `fullText(doc)` | `PDFTextStripper` over the whole document |
+| `regionText(doc, rect)` | `PDFTextStripperByArea` for a rectangular region |
 
-5. **Builds a PDF** via `PdfBuilder.build()` with the JPEG and OCR word list.
+---
 
-6. **Reads the PDF back** with PDFBox and checks two things:
-   - `PDFTextStripper` finds `"Hello"` anywhere in the document text.
-   - `PDFTextStripperByArea` finds `"Hello"` inside the upper-left 400×350 pt region,
-     confirming the invisible OCR text overlay is positioned correctly over the image.
+### Page geometry
 
-### Coordinate rationale
+```
+image  : 850 × 1100 px  (Letter at 100 DPI)
+PDF    : 612 × 792 pt   (scale = 72 / 100 = 0.72)
 
-The test image is 850×1100 px at 100 DPI (Letter paper). The PDF scale factor is
-`72 / 100 = 0.72 pt/px`. `"Hello"` is drawn with its baseline at pixel (150, 300):
+Quadrant regions — rendering coordinates (origin = top-left, Y increases downward):
 
-| Quantity | Calculation | Value |
-|---|---|---|
-| PDF x | 150 px × 0.72 | ≈ 108 pt from left |
-| PDF y from bottom | 792 − (300 + ~100) × 0.72 | ≈ 720 − 288 = 432 pt... but PDFTextStripperByArea uses rendering coords (top-left origin) |
-| Rendering y from top | ~300 × 0.72 | ≈ 216 pt from top |
+  ┌──────────────┬──────────────┐
+  │  UPPER_LEFT  │  UPPER_RIGHT │  y: [0,   396]
+  │  x: [0, 306] │  x: [306,612]│
+  ├──────────────┼──────────────┤
+  │  LOWER_LEFT  │  LOWER_RIGHT │  y: [396, 792]
+  │  x: [0, 306] │  x: [306,612]│
+  └──────────────┴──────────────┘
+```
 
-The search region `Rectangle2D.Float(0, 0, 400, 350)` comfortably covers x [0, 400 pt]
-and y [0, 350 pt] from the top-left, which contains the expected word position while
-excluding the lower and right portions of the page.
+`PDFTextStripperByArea` uses these rendering coordinates (`Rectangle2D.Float(x, y, width, height)`).
+
+---
+
+### Tests
+
+#### `topLeftTextIsRecognizedAndPositioned`
+
+Draws `"Hello"` at image baseline (150, 300).
+
+| Step | Check |
+|---|---|
+| OCR | word list contains `"Hello"` |
+| PDF full text | contains `"Hello"` |
+| PDF region | `UPPER_LEFT` region contains `"Hello"` |
+| Page count | exactly 1 page |
+
+Image → PDF coordinate mapping: `pdfX = 150 × 0.72 = 108 pt`, rendering `Y = 300 × 0.72 = 216 pt` from top — both within `UPPER_LEFT`.
+
+---
+
+#### `topRightTextIsRecognizedAndPositioned`
+
+Draws `"Tiger"` at image baseline (450, 120).
+
+`pdfX = 450 × 0.72 = 324 pt` (right of centre 306 pt), rendering `Y = 86 pt` — falls in `UPPER_RIGHT`.
+
+---
+
+#### `bottomLeftTextIsRecognizedAndPositioned`
+
+Draws `"Ocean"` at image baseline (50, 1000).
+
+`pdfX = 36 pt` (left half), rendering `Y = 720 pt` (below the 396 pt mid-point) — falls in `LOWER_LEFT`.
+
+---
+
+#### `bottomRightTextIsRecognizedAndPositioned`
+
+Draws `"Abyss"` at image baseline (450, 1000).
+
+`pdfX = 324 pt` (right half), rendering `Y = 720 pt` (lower half) — falls in `LOWER_RIGHT`.
+
+---
+
+#### `tableTextIsRecognized`
+
+Draws a 2×2 ruled table (2 px borders) in the middle of the page and verifies that all
+four cell words appear in the PDF text layer.
+
+```
+Table origin : pixel (100, 500)
+Cell size    : 200 × 80 px,  font = 50 pt (dpi / 2)
+Grid lines   : horizontal at y = 500, 580, 660
+               vertical   at x = 100, 300, 500
+
+  ┌─────────────┬─────────────┐  y = 500
+  │   Alpha     │   Beta      │  baseline y = 560
+  ├─────────────┼─────────────┤  y = 580
+  │   Gamma     │   Delta     │  baseline y = 640
+  └─────────────┴─────────────┘  y = 660
+   x=100        x=300        x=500
+```
+
+The test asserts all four words (`Alpha`, `Beta`, `Gamma`, `Delta`) appear anywhere in
+the full PDF text extraction.
+
+---
+
+### Tessdata requirement
+
+`TesseractOcrEngine` resolves tessdata in order (see `CLAUDE.md`). Gradle runs tests
+from the project root, so `appResources/windows-x64/tessdata/eng.traineddata` is found
+automatically — no extra configuration needed. If the file is missing the test fails at
+`assertWord` with a clear message.
+
+---
 
 ### Build changes
 
-`build.gradle.kts` — the `tasks.test` block was expanded to include the same
-`--add-opens` JVM flags used by `JavaExec` tasks, required because Tess4J and PDFBox
-use reflection on AWT internals at test time:
+`build.gradle.kts` — `tasks.test` was expanded to include the same `--add-opens` JVM
+flags used by `JavaExec`, required because Tess4J and PDFBox use reflection on AWT
+internals at test time:
 
 ```kotlin
 tasks.test {
@@ -62,11 +142,16 @@ tasks.test {
 }
 ```
 
+---
+
 ### Running
 
 ```bash
-# Run just this test
+# Run just this test class
 ./gradlew test --tests "com.jimandreas.ScanPipelineTest"
+
+# Run a single test by name
+./gradlew test --tests "com.jimandreas.ScanPipelineTest.tableTextIsRecognized"
 
 # Run all tests
 ./gradlew test
