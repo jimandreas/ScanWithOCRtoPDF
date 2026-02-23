@@ -2,7 +2,6 @@ package com.jimandreas.pdf
 
 import com.jimandreas.ocr.OcrWord
 import com.jimandreas.state.PdfMetadata
-import com.jimandreas.state.ScanSettings
 import org.apache.pdfbox.pdmodel.PDDocument
 import org.apache.pdfbox.pdmodel.PDPage
 import org.apache.pdfbox.pdmodel.PDPageContentStream
@@ -31,12 +30,12 @@ object PdfBuilder {
         jpegPages: List<ByteArray>,
         ocrWords: List<List<OcrWord>?>,
         pageDpis: List<Int>,
-        metadata: PdfMetadata,
-        scanSettings: ScanSettings
+        pageSizes: List<Pair<Int, Int>>,
+        metadata: PdfMetadata
     ) {
         PDDocument().use { document ->
             addOutputIntent(document)
-            addPages(document, jpegPages, ocrWords, pageDpis, scanSettings)
+            addPages(document, jpegPages, ocrWords, pageDpis, pageSizes)
             PdfMetadataWriter.write(document, metadata)
             document.save(outputFile)
         }
@@ -61,13 +60,15 @@ object PdfBuilder {
         jpegPages: List<ByteArray>,
         ocrWords: List<List<OcrWord>?>,
         pageDpis: List<Int>,
-        scanSettings: ScanSettings
+        pageSizes: List<Pair<Int, Int>>
     ) {
         val font: PDFont? = loadOcrFont(document)
 
         jpegPages.forEachIndexed { i, jpegBytes ->
-            val pageWidthPt = (scanSettings.paperSize.widthInches * 72.0).toFloat()
-            val pageHeightPt = (scanSettings.paperSize.heightInches * 72.0).toFloat()
+            val dpi = pageDpis.getOrElse(i) { 300 }
+            val (pixelW, pixelH) = pageSizes.getOrElse(i) { Pair(2550, 3300) }
+            val pageWidthPt  = (pixelW * 72.0 / dpi).toFloat()
+            val pageHeightPt = (pixelH * 72.0 / dpi).toFloat()
             val mediaBox = PDRectangle(pageWidthPt, pageHeightPt)
 
             val page = PDPage(mediaBox)
@@ -81,7 +82,6 @@ object PdfBuilder {
 
                 // Layer 2: invisible OCR text overlay at exact word positions
                 val words = ocrWords.getOrNull(i)
-                val dpi = pageDpis.getOrElse(i) { 300 }
                 if (words != null && font != null) {
                     drawWordOverlay(cs, font, words, pageWidthPt, pageHeightPt, dpi)
                 }

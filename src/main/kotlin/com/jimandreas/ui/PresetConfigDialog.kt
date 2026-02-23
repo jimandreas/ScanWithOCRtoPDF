@@ -47,19 +47,6 @@ fun PresetConfigDialog(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Input settings group
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SettingsDropdowns(
-                        settings = scanSettings,
-                        onSettingsChange = onScanSettingsChange,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-
             // Optimization group
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)

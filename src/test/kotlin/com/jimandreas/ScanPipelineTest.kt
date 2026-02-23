@@ -3,10 +3,7 @@ package com.jimandreas
 import com.jimandreas.ocr.OcrWord
 import com.jimandreas.ocr.TesseractOcrEngine
 import com.jimandreas.pdf.PdfBuilder
-import com.jimandreas.state.ColorMode
-import com.jimandreas.state.PaperSize
 import com.jimandreas.state.PdfMetadata
-import com.jimandreas.state.ScanSettings
 import com.jimandreas.util.ImageProcessor
 import kotlinx.coroutines.runBlocking
 import org.apache.pdfbox.Loader
@@ -241,7 +238,7 @@ class ScanPipelineTest {
      * deletes the temp file.
      */
     private fun withPdf(image: BufferedImage, words: List<OcrWord>?, block: (PDDocument) -> Unit) {
-        val jpegBytes = ImageProcessor.toJpegBytes(image, 0.95f, ColorMode.FULL_COLOR)
+        val jpegBytes = ImageProcessor.toJpegBytes(image, 0.95f)
         val outFile: File = Files.createTempFile("scan_test_", ".pdf").toFile()
         try {
             PdfBuilder.build(
@@ -249,8 +246,8 @@ class ScanPipelineTest {
                 jpegPages  = listOf(jpegBytes),
                 ocrWords   = listOf(words),
                 pageDpis   = listOf(dpi),
-                metadata   = PdfMetadata(),
-                scanSettings = ScanSettings(dpi = dpi, paperSize = PaperSize.LETTER)
+                pageSizes  = listOf(Pair(image.width, image.height)),
+                metadata   = PdfMetadata()
             )
             Loader.loadPDF(outFile).use(block)
         } finally {

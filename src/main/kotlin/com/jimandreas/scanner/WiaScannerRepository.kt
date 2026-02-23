@@ -125,7 +125,7 @@ class WiaScannerRepository : ScannerRepository {
         }
         val devMgr = WiaDevMgr2(pDevMgr.value)
         try {
-            return acquireViaGetImageDlg(devMgr, device.id, settings.dpi)
+            return acquireViaGetImageDlg(devMgr, device.id, settings)
         } finally {
             devMgr.release()
         }
@@ -144,7 +144,7 @@ class WiaScannerRepository : ScannerRepository {
      * Memory ownership: caller must SysFreeString each path BSTR, CoTaskMemFree the array,
      * and Release the ppItem pointer.
      */
-    private fun acquireViaGetImageDlg(devMgr: WiaDevMgr2, deviceId: String, fallbackDpi: Int): List<ScannedPage> {
+    private fun acquireViaGetImageDlg(devMgr: WiaDevMgr2, deviceId: String, settings: ScanSettings): List<ScannedPage> {
         val hwnd = User32.INSTANCE.GetDesktopWindow()
         val bstrDeviceID = OleAuto.INSTANCE.SysAllocString(deviceId)
         // IWiaDevMgr2::GetImageDlg returns E_POINTER if bstrFolderName or bstrFilename
@@ -173,39 +173,47 @@ class WiaScannerRepository : ScannerRepository {
             if (hr.toInt() == 1) return emptyList()
             if (hr.toInt() != 0) throw hresultToScannerException(hr.toInt(), "GetImageDlg")
 
-            val numFiles = plNumFiles.value
-            if (numFiles <= 0) return emptyList()
-
-            // Read each file path returned by WIA and decode it as a ScannedPage.
-            val pages = mutableListOf<ScannedPage>()
-            val filePathsArray = ppbstrFilePaths.value
-            if (filePathsArray != null) {
-                for (i in 0 until numFiles) {
-                    val bstrPtr = filePathsArray.getPointer(i.toLong() * Native.POINTER_SIZE)
-                    if (bstrPtr != null) {
-                        try {
-                            val path = bstrPtr.getWideString(0)
-                            val file = java.io.File(path)
-                            val image = ImageIO.read(file)
-                            if (image != null) {
-                                val dpi = readDpiFromFile(file, fallbackDpi)
-                                pages.add(ScannedPage(image, dpi))
-                            }
-                        } finally {
-                            OleAuto.INSTANCE.SysFreeString(WTypes.BSTR(bstrPtr))
-                        }
-                    }
-                }
-                Ole32.INSTANCE.CoTaskMemFree(filePathsArray)
-            }
-
-            return pages
+            return collectScannedPages(plNumFiles.value, ppbstrFilePaths, 300)
         } finally {
             OleAuto.INSTANCE.SysFreeString(bstrDeviceID)
             OleAuto.INSTANCE.SysFreeString(bstrFolderName)
             OleAuto.INSTANCE.SysFreeString(bstrFilename)
             ppItem.value?.let { releaseComPointer(it) }
         }
+    }
+
+    /**
+     * Reads the scanned image files returned by WIA (GetImageDlg / DeviceDlg) into
+     * a list of ScannedPages.  Frees the BSTR array elements and the CoTask array.
+     */
+    private fun collectScannedPages(
+        numFiles: Int,
+        ppbstrFilePaths: PointerByReference,
+        fallbackDpi: Int
+    ): List<ScannedPage> {
+        if (numFiles <= 0) return emptyList()
+        val pages = mutableListOf<ScannedPage>()
+        val filePathsArray = ppbstrFilePaths.value
+        if (filePathsArray != null) {
+            for (i in 0 until numFiles) {
+                val bstrPtr = filePathsArray.getPointer(i.toLong() * Native.POINTER_SIZE)
+                if (bstrPtr != null) {
+                    try {
+                        val path = bstrPtr.getWideString(0)
+                        val file = java.io.File(path)
+                        val image = ImageIO.read(file)
+                        if (image != null) {
+                            val dpi = readDpiFromFile(file, fallbackDpi)
+                            pages.add(ScannedPage(image, dpi))
+                        }
+                    } finally {
+                        OleAuto.INSTANCE.SysFreeString(WTypes.BSTR(bstrPtr))
+                    }
+                }
+            }
+            Ole32.INSTANCE.CoTaskMemFree(filePathsArray)
+        }
+        return pages
     }
 
     /**

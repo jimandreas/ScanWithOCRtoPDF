@@ -142,7 +142,7 @@ class AppState(
             val jpegPages = withContext(dispatchers.default) {
                 pages.mapIndexed { i, page ->
                     ensureActive()
-                    val bytes = ImageProcessor.toJpegBytes(page.image, scanSettings.jpegQuality, scanSettings.colorMode)
+                    val bytes = ImageProcessor.toJpegBytes(page.image, scanSettings.jpegQuality)
                     withContext(dispatchers.main) {
                         scanProgress = ScanProgress("Compressing page ${i + 1}/${pages.size}", i + 1)
                     }
@@ -178,8 +178,8 @@ class AppState(
                     jpegPages = jpegPages,
                     ocrWords = ocrWords,
                     pageDpis = pages.map { it.dpi },
-                    metadata = pdfMetadata,
-                    scanSettings = scanSettings
+                    pageSizes = pages.map { Pair(it.image.width, it.image.height) },
+                    metadata = pdfMetadata
                 )
                 outFile
             }
