@@ -161,6 +161,64 @@ class ScanPipelineTest {
     }
 
     // -------------------------------------------------------------------------
+    // German umlaut / Eszett OCR test
+    // -------------------------------------------------------------------------
+
+    /**
+     * Renders one representative word per target character onto a blank page,
+     * runs Tesseract in German (deu) mode, and asserts that every umlaut and
+     * the Eszett are present in the recognised output.
+     *
+     * Characters under test:
+     *   uppercase  Ä  Ö  Ü
+     *   lowercase  ä  ö  ü
+     *   Eszett     ß
+     *
+     * Page layout (100 DPI, 100-pt font, Letter):
+     *   7 rows at y-baselines 150, 280, 410, 540, 670, 800, 930
+     */
+    @Test
+    fun germanUmlautsAreRecognized() {
+        runBlocking {
+            val image = blankPage()
+
+            val testWords = listOf(
+                "Ärger",   // uppercase Ä
+                "Öffnen",  // uppercase Ö
+                "Über",    // uppercase Ü
+                "Bär",     // lowercase ä
+                "böse",    // lowercase ö
+                "grün",    // lowercase ü
+                "Straße"   // Eszett ß
+            )
+            testWords.forEachIndexed { i, word ->
+                drawText(image, word, 100, 150 + i * 130, dpi)
+            }
+
+            val words = ocrEngine.recognizePage(image, "deu", dpi)
+            assertNotNull(words, "German OCR returned null — check deu.traineddata")
+
+            val recognizedText = words.joinToString(" ") { it.text }
+
+            val expectedChars = listOf(
+                'Ä' to "uppercase Ä (as in Ärger)",
+                'Ö' to "uppercase Ö (as in Öffnen)",
+                'Ü' to "uppercase Ü (as in Über)",
+                'ä' to "lowercase ä (as in Bär)",
+                'ö' to "lowercase ö (as in böse)",
+                'ü' to "lowercase ü (as in grün)",
+                'ß' to "Eszett ß (as in Straße)"
+            )
+            for ((char, description) in expectedChars) {
+                assertTrue(
+                    recognizedText.contains(char),
+                    "German OCR must recognize $description; full text: $recognizedText"
+                )
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
