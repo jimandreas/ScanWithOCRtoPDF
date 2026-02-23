@@ -5,6 +5,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.dp
 import com.jimandreas.scanner.ScannerDevice
 
@@ -24,7 +26,7 @@ fun ScannerDropdown(
         ExposedDropdownMenuBox(
             expanded = expanded,
             onExpandedChange = { expanded = it },
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f).pointerHoverIcon(PointerIcon.Default, overrideDescendants = true)
         ) {
             OutlinedTextField(
                 value = when {

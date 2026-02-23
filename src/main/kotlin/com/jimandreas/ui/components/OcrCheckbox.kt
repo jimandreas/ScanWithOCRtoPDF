@@ -40,14 +40,14 @@ fun OcrCheckbox(
                 ExposedDropdownMenuBox(
                     expanded = expanded,
                     onExpandedChange = { expanded = it },
-                    modifier = Modifier.width(200.dp)
+                    modifier = Modifier.width(200.dp).pointerHoverIcon(PointerIcon.Default, overrideDescendants = true)
                 ) {
                     OutlinedTextField(
                         value = selectedLabel,
                         onValueChange = {},
                         readOnly = true,
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                        modifier = Modifier.menuAnchor().pointerHoverIcon(PointerIcon.Default),
+                        modifier = Modifier.menuAnchor(),
                         textStyle = MaterialTheme.typography.bodySmall
                     )
                     ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
