@@ -31,7 +31,13 @@ dependencies {
 }
 
 kotlin { jvmToolchain(17) }
-tasks.test { useJUnitPlatform() }
+tasks.test {
+    useJUnitPlatform()
+    jvmArgs(
+        "--add-opens", "java.base/java.lang=ALL-UNNAMED",
+        "--add-opens", "java.desktop/java.awt.image=ALL-UNNAMED"
+    )
+}
 
 compose.desktop {
     application {
