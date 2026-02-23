@@ -2,6 +2,8 @@
 
 A Windows 11 desktop application that scans documents and saves them as searchable PDF files.
 
+> **Note:** This application is primarily a **scanning backend** — its job is to acquire an image from your scanner, run OCR on it, and produce a searchable PDF. It is not a full document manager. Configure your scanner's resolution, paper size, and duplex settings here, and let the app handle the rest automatically.
+
 ## What you can do
 
 - **Scan to PDF in one click** — select your scanner, hit Scan, and get a PDF
@@ -23,6 +25,17 @@ A Windows 11 desktop application that scans documents and saves them as searchab
 
 - Windows 11 (64-bit)
 - Any WIA-compatible scanner (Brother, HP, Canon, Epson, etc.)
+
+## Tip: Install Windows Fax and Scan first
+
+Before using this app, it helps to install **Windows Fax and Scan** and set a default scanner profile:
+
+1. Open **Settings → System → Optional Features**
+2. Click **See available features** (if Windows Fax and Scan is not already listed as installed)
+3. Search for **Windows Fax and Scan** and install it
+4. Launch Windows Fax and Scan, do a test scan, and save the settings as your default profile
+
+Once a default scanner profile exists, the WIA driver remembers your preferred resolution, color mode, and paper size — so this app (and any other WIA-based tool) can pick those up automatically, saving you repeated clicks every time you scan.
 
 ## Installation
 
