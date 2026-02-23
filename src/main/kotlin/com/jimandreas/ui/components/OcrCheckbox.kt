@@ -30,7 +30,7 @@ fun OcrCheckbox(
             val selectedLabel = languages.firstOrNull { it.first == settings.language }?.second ?: settings.language
 
             Row(
-                modifier = Modifier.padding(start = 40.dp, top = 4.dp),
+                modifier = Modifier.padding(start = 40.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {

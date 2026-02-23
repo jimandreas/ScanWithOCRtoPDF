@@ -18,12 +18,10 @@ fun PresetConfigDialog(
     isLoadingScanners: Boolean,
     scanSettings: ScanSettings,
     ocrSettings: OcrSettings,
-    pdfMetadata: PdfMetadata,
     onScannerSelect: (ScannerDevice) -> Unit,
     onRefreshScanners: () -> Unit,
     onScanSettingsChange: (ScanSettings) -> Unit,
     onOcrSettingsChange: (OcrSettings) -> Unit,
-    onMetadataChange: (PdfMetadata) -> Unit,
     onScan: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -33,11 +31,11 @@ fun PresetConfigDialog(
     ) {
         Column(
             modifier = Modifier
-                .padding(24.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text("Configure Presets", style = MaterialTheme.typography.headlineSmall)
+            Text("Scan to PDF", style = MaterialTheme.typography.headlineSmall)
 
             // Scanner selection
             ScannerDropdown(
@@ -53,8 +51,7 @@ fun PresetConfigDialog(
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Input", style = MaterialTheme.typography.labelLarge)
+                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SettingsDropdowns(
                         settings = scanSettings,
                         onSettingsChange = onScanSettingsChange,
@@ -67,9 +64,7 @@ fun PresetConfigDialog(
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Optimization", style = MaterialTheme.typography.labelLarge)
-                    Spacer(Modifier.height(8.dp))
+                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                     QualitySlider(
                         quality = scanSettings.jpegQuality,
                         onQualityChange = { onScanSettingsChange(scanSettings.copy(jpegQuality = it)) },
@@ -82,42 +77,10 @@ fun PresetConfigDialog(
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Post-Processing", style = MaterialTheme.typography.labelLarge)
-                    Spacer(Modifier.height(8.dp))
+                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                     OcrCheckbox(
                         settings = ocrSettings,
                         onSettingsChange = onOcrSettingsChange,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-
-            // Metadata group
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("PDF Metadata", style = MaterialTheme.typography.labelLarge)
-                    OutlinedTextField(
-                        value = pdfMetadata.author,
-                        onValueChange = { onMetadataChange(pdfMetadata.copy(author = it)) },
-                        label = { Text("Author") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = pdfMetadata.title,
-                        onValueChange = { onMetadataChange(pdfMetadata.copy(title = it)) },
-                        label = { Text("Title") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = pdfMetadata.keywords,
-                        onValueChange = { onMetadataChange(pdfMetadata.copy(keywords = it)) },
-                        label = { Text("Keywords") },
-                        singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

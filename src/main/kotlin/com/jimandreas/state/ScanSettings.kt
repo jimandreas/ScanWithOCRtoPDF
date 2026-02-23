@@ -2,9 +2,9 @@ package com.jimandreas.state
 
 data class ScanSettings(
     val sides: Sides = Sides.ONE_SIDED,
-    val colorMode: ColorMode = ColorMode.GRAYSCALE,
+    val colorMode: ColorMode = ColorMode.FULL_COLOR,
     val dpi: Int = 300,
-    val paperSize: PaperSize = PaperSize.LETTER,
+    val paperSize: PaperSize = PaperSize.A4,
     val jpegQuality: Float = 0.90f
 )
 

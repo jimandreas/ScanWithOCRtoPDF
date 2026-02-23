@@ -37,12 +37,10 @@ fun App() {
                     isLoadingScanners = appState.isLoadingScanners,
                     scanSettings = appState.scanSettings,
                     ocrSettings = appState.ocrSettings,
-                    pdfMetadata = appState.pdfMetadata,
                     onScannerSelect = { appState.selectedScanner = it },
                     onRefreshScanners = { appState.loadScanners(coroutineScope) },
                     onScanSettingsChange = { appState.scanSettings = it },
                     onOcrSettingsChange = { appState.ocrSettings = it },
-                    onMetadataChange = { appState.pdfMetadata = it },
                     onScan = { appState.startScan(coroutineScope) },
                     modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth()
                 )

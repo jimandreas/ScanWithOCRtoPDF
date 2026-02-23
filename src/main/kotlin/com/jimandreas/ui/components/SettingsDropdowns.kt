@@ -14,7 +14,7 @@ fun SettingsDropdowns(
     onSettingsChange: (ScanSettings) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             EnumDropdown(
                 label = "Sides",

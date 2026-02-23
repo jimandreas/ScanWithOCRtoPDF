@@ -1,7 +1,7 @@
 package com.jimandreas.state
 
 data class OcrSettings(
-    val enabled: Boolean = false,
+    val enabled: Boolean = true,
     val language: String = "eng"
 ) {
     companion object {
